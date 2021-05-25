@@ -17,10 +17,33 @@ app.get('/blockchain', (req,res) => {
 })
 
 app.post('/transaction', (req,res) => {
-    const {amount,sender,recipient} = req.body
+    const {newTransaction} = req.body
 
-    const blockIndex = wgtcoin.createNewTransaction(amount,sender,recipient)
+    const blockIndex = wgtcoin.addTransactionToPendingTransactions(newTransaction)
     res.json({note: `Transaction will be added in block ${blockIndex}.`})
+})
+
+app.post('/transaction/broadcast', (req,res) => {
+    const {amount,sender,recipient} = req.body
+    const newTransaction = wgtcoin.createNewTransaction(amount,sender,recipient)
+    
+    wgtcoin.addTransactionToPendingTransactions(newTransaction)
+
+    const registerTransactions = []
+    wgtcoin.networkNodes.forEach(networkNodeUrl => {
+       const requestOptions = {
+           uri: networkNodeUrl + '/transaction',
+           method: 'POST',
+           body: {newTransaction},
+           json: true
+       }
+       registerTransactions.push(rp(requestOptions))
+    })
+
+    Promise.all(registerTransactions)
+        .then(data => {
+            res.json({note: 'Transaction broadcast successful'})
+        })
 })
 
 app.get('/mine', (req,res) => {
@@ -33,20 +56,70 @@ app.get('/mine', (req,res) => {
 
     const nonce = wgtcoin.proofOfWork(previousBlockHash,currentBlockData)
     const blockHash = wgtcoin.hashBlock(previousBlockHash,currentBlockData,nonce)
-
-    wgtcoin.createNewTransaction(12.5,"00",nodeAddress)
     const newBlock = wgtcoin.createNewBlock(nonce,previousBlockHash,blockHash)
 
-    res.json({
-        note: 'New block mined succesfully',
-        block: newBlock
+    const requestPromises = []
+    wgtcoin.networkNodes.forEach(networkNodeUrl => {
+        const requestOptions = {
+            uri: networkNodeUrl + '/receive-new-block',
+            method: 'POST',
+            body: {newBlock},
+            json:true
+        }
+
+        requestPromises.push(rp(requestOptions))
     })
+
+    Promise.all(requestPromises)
+    .then(data => {
+        const requestOptions = {
+            uri: wgtcoin.currentNodeUrl + '/transaction/broadcast',
+            method: 'POST',
+            body: {
+                amount: 12.5,
+                sender: '00',
+                recipient: wgtcoin.nodeAddress
+                
+            },
+            json: true
+        }
+
+        return rp(requestOptions)
+    })
+    .then(data => {
+        res.json({
+            note: 'New block mined and broadcast succesfully',
+            block: newBlock
+        })
+    })
+})
+
+app.post('/receive-new-block', (req,res) => {
+    const {newBlock} = req.body
+    const lastBlock = wgtcoin.getLastBlock()
+    const correctHash = lastBlock.hash === newBlock.previousBlockHash
+    const correctIndex = lastBlock['index'] + 1 === newBlock['index']
+    
+    if(correctHash && correctIndex) {
+        wgtcoin.chain.push(newBlock)
+        wgtcoin.pendingTransactions = []
+        res.json({
+            note: 'new blocked received and accepted',
+            newBlock
+        })
+    } else {
+        res.json({
+            note: 'new blocked rejected',
+            newBlock
+        })
+    }
+    
 })
 
 app.post('/register-and-broadcast-node', (req,res) => {
     const {newNodeUrl} = req.body 
 
-    if(wgtcoin.networkNodes.indexOf(newNodeUrl) == -1)
+    if(wgtcoin.networkNodes.indexOf(newNodeUrl) == -1 && wgtcoin.currentNodeUrl !== newNodeUrl)
         wgtcoin.networkNodes.push(newNodeUrl)
     
     const registerNodesPromises  = []
