@@ -78,7 +78,7 @@ app.get('/mine', (req,res) => {
             body: {
                 amount: 12.5,
                 sender: '00',
-                recipient: wgtcoin.nodeAddress
+                recipient: nodeAddress
                 
             },
             json: true
@@ -208,6 +208,31 @@ app.get('/consensus',(req,res) => {
             res.json({note: 'Chain successfully replaced', chain: wgtcoin.chain})    
         }    
     })
+})
+
+app.get('/block/:blockHash', (req,res) => {
+    const {blockHash} = req.params
+    const correctBlock = wgtcoin.getBlock(blockHash)
+
+    res.json({block: correctBlock})
+})
+
+app.get('/transaction/:transactionId', (req,res) => {
+    const {transactionId} = req.params
+    const correctTransaction = wgtcoin.getTransaction(transactionId)
+
+    res.json({... correctTransaction})
+})
+
+app.get('/address/:address', (req,res) => {
+    const {address} = req.params
+    const addressData = wgtcoin.getAddressData(address)
+
+    res.json({... addressData})
+})
+
+app.get('/block-explorer',(req,res) => {
+    res.sendFile('./block-explorer/index.html', {root: __dirname})
 })
 
 app.listen(port, () => {
